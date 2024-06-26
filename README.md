@@ -1,0 +1,2 @@
+# gotest
+Better go test
