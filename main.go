@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+
+	"github.com/pterm/pterm"
 )
 
 // TestEvent represents a test event in JSON output from 'go test -json'
@@ -21,13 +23,14 @@ type TestEvent struct {
 // TestResult holds aggregated results for each test
 type TestResult struct {
 	Name    string
+	Package string
 	Output  []string
 	Elapsed string
 	State   string
 }
 
 type PackageResult struct {
-	tests   []string
+	tests   []*TestResult
 	Elapsed float64
 }
 
@@ -44,9 +47,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	area, _ := pterm.DefaultArea.Start()
+
 	// package + test name to result map
-	results := make(map[string]*TestResult)
 	packages := make(map[string]*PackageResult)
+	results := make(map[string]*TestResult)
 
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -61,10 +66,20 @@ func main() {
 			switch event.Action {
 			case "start":
 				packages[event.Package] = &PackageResult{}
-			case "pass":
-				packages[event.Package].Elapsed = event.Elapsed
-			case "fail":
-				packages[event.Package].Elapsed = event.Elapsed
+			case "pass", "fail":
+				pkg := packages[event.Package]
+				pkg.Elapsed = event.Elapsed
+
+				failedTests := []*TestResult{}
+				passedCount := 0
+				for _, testResult := range pkg.tests {
+					if testResult.State == "fail" {
+						failedTests = append(failedTests, testResult)
+					} else {
+						passedCount++
+					}
+				}
+				area.Update(pterm.Sprintf("%s: Passed: %d, Failed: %d\n", event.Package, passedCount, len(failedTests)))
 			}
 			continue
 		}
@@ -73,11 +88,12 @@ func main() {
 		switch event.Action {
 		case "run":
 			results[testKey] = &TestResult{
+				Package: event.Package,
 				Name:    event.Test,
 				Output:  []string{},
 				Elapsed: "",
 			}
-			packages[event.Package].tests = append(packages[event.Package].tests, event.Test)
+			packages[event.Package].tests = append(packages[event.Package].tests, results[testKey])
 		case "output":
 			results[testKey].Output = append(results[testKey].Output, event.Output)
 		case "fail":
@@ -97,31 +113,31 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Command finished with error: %v\n", err)
 		}
 	}
+	area.Stop()
 
+	PrintFailedPackageTests(packages)
+}
+
+func PrintFailedPackageTests(packages map[string]*PackageResult) {
+	fmt.Println()
 	failedTests := []*TestResult{}
-	for pkg, pkgResult := range packages {
-		oldFailedTestCount := len(failedTests)
-		fmt.Println("--------------------------")
+	for _, pkgResult := range packages {
 		successCount := 0
-		for pkgTest := range pkgResult.tests {
-			testResult := results[pkg+"."+pkgResult.tests[pkgTest]]
-			if testResult.State == "pass" {
+		for _, pkgTest := range pkgResult.tests {
+			if pkgTest.State == "pass" {
 				successCount++
 			} else {
-				failedTests = append(failedTests, testResult)
+				failedTests = append(failedTests, pkgTest)
 			}
 		}
-		packageFailedTests := len(failedTests) - oldFailedTestCount
-		fmt.Printf("Package: %s, Passed tests: %d, Failed tests: %d\n", pkg, successCount, packageFailedTests)
 
 		if len(failedTests) > 0 {
-			fmt.Println("Failed:")
+			pterm.DefaultCenter.Printf(pterm.Bold.Sprintf(pterm.Red("Failures")))
 			for _, testResult := range failedTests {
-				fmt.Printf("===========%s===========\n", testResult.Name)
+				pterm.DefaultSection.Println(testResult.Name)
 				for _, output := range testResult.Output {
 					fmt.Println(output)
 				}
-				fmt.Printf("=========================================\n")
 			}
 		}
 	}
