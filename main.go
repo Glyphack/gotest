@@ -47,7 +47,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	area, _ := pterm.DefaultArea.Start()
+	packageText, _ := pterm.DefaultArea.Start()
+	testText, _ := pterm.DefaultArea.Start()
 
 	// package + test name to result map
 	packages := make(map[string]*PackageResult)
@@ -65,8 +66,10 @@ func main() {
 		if event.Test == "" {
 			switch event.Action {
 			case "start":
+				packageText.Update(pterm.Sprintf("%s", event.Package))
 				packages[event.Package] = &PackageResult{}
 			case "pass", "fail":
+				packageText.Clear()
 				pkg := packages[event.Package]
 				pkg.Elapsed = event.Elapsed
 
@@ -79,7 +82,7 @@ func main() {
 						passedCount++
 					}
 				}
-				area.Update(pterm.Sprintf("%s: Passed: %d, Failed: %d\n", event.Package, passedCount, len(failedTests)))
+				pterm.DefaultBasicText.Println(pterm.Sprintf("%s: Passed: %d, Failed: %d", event.Package, passedCount, len(failedTests)))
 			}
 			continue
 		}
@@ -87,6 +90,8 @@ func main() {
 		testKey := event.Package + "." + event.Test
 		switch event.Action {
 		case "run":
+			testText.Clear()
+			testText.Update(pterm.Sprintf("%s\n%s\n", event.Package, event.Test))
 			results[testKey] = &TestResult{
 				Package: event.Package,
 				Name:    event.Test,
@@ -100,6 +105,8 @@ func main() {
 			results[testKey].State = "fail"
 		case "pass":
 			results[testKey].State = "pass"
+		case "skip", "pause", "cont":
+			continue
 		default:
 			panic("Unknown action: " + event.Action)
 		}
@@ -113,7 +120,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Command finished with error: %v\n", err)
 		}
 	}
-	area.Stop()
+	packageText.Stop()
 
 	PrintFailedPackageTests(packages)
 }
