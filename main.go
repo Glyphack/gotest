@@ -15,12 +15,20 @@ type TestEvent struct {
 	Package string
 	Test    string
 	Output  string
+	Elapsed float64
 }
 
 // TestResult holds aggregated results for each test
 type TestResult struct {
-	Passed []string
-	Failed map[string]string
+	Name    string
+	Output  []string
+	Elapsed string
+	State   string
+}
+
+type PackageResult struct {
+	tests   []string
+	Elapsed float64
 }
 
 func main() {
@@ -36,7 +44,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// package + test name to result map
 	results := make(map[string]*TestResult)
+	packages := make(map[string]*PackageResult)
 
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -46,32 +56,73 @@ func main() {
 			continue
 		}
 
-		if _, ok := results[event.Package]; !ok {
-			results[event.Package] = &TestResult{
-				Passed: make([]string, 0),
-				Failed: make(map[string]string),
+		// Package information
+		if event.Test == "" {
+			switch event.Action {
+			case "start":
+				packages[event.Package] = &PackageResult{}
+			case "pass":
+				packages[event.Package].Elapsed = event.Elapsed
+			case "fail":
+				packages[event.Package].Elapsed = event.Elapsed
 			}
+			continue
 		}
 
+		testKey := event.Package + "." + event.Test
 		switch event.Action {
-		case "pass":
-			results[event.Package].Passed = append(results[event.Package].Passed, event.Test)
+		case "run":
+			results[testKey] = &TestResult{
+				Name:    event.Test,
+				Output:  []string{},
+				Elapsed: "",
+			}
+			packages[event.Package].tests = append(packages[event.Package].tests, event.Test)
+		case "output":
+			results[testKey].Output = append(results[testKey].Output, event.Output)
 		case "fail":
-			results[event.Package].Failed[event.Test] += event.Output
+			results[testKey].State = "fail"
+		case "pass":
+			results[testKey].State = "pass"
+		default:
+			panic("Unknown action: " + event.Action)
 		}
 	}
 
 	if err := cmd.Wait(); err != nil {
-		fmt.Fprintf(os.Stderr, "Command finished with error: %v\n", err)
+		exitErr := err.(*exec.ExitError)
+		if exitErr.ExitCode() == 1 {
+			fmt.Fprintln(os.Stderr, "Some tests failed")
+		} else {
+			fmt.Fprintf(os.Stderr, "Command finished with error: %v\n", err)
+		}
 	}
 
-	for pkg, result := range results {
-		fmt.Printf("Package: %s, Passed tests: %d\n", pkg, len(result.Passed))
-	}
+	failedTests := []*TestResult{}
+	for pkg, pkgResult := range packages {
+		oldFailedTestCount := len(failedTests)
+		fmt.Println("--------------------------")
+		successCount := 0
+		for pkgTest := range pkgResult.tests {
+			testResult := results[pkg+"."+pkgResult.tests[pkgTest]]
+			if testResult.State == "pass" {
+				successCount++
+			} else {
+				failedTests = append(failedTests, testResult)
+			}
+		}
+		packageFailedTests := len(failedTests) - oldFailedTestCount
+		fmt.Printf("Package: %s, Passed tests: %d, Failed tests: %d\n", pkg, successCount, packageFailedTests)
 
-	for pkg, result := range results {
-		for test, output := range result.Failed {
-			fmt.Printf("Failed in package %s, test %s: \nOutput: %s\n", pkg, test, output)
+		if len(failedTests) > 0 {
+			fmt.Println("Failed:")
+			for _, testResult := range failedTests {
+				fmt.Printf("===========%s===========\n", testResult.Name)
+				for _, output := range testResult.Output {
+					fmt.Println(output)
+				}
+				fmt.Printf("=========================================\n")
+			}
 		}
 	}
 }
