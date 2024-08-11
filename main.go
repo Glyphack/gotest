@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 
@@ -47,10 +48,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	packageText, _ := pterm.DefaultArea.Start()
-	testText, _ := pterm.DefaultArea.Start()
+	testTitle, err := pterm.DefaultArea.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// package + test name to result map
 	packages := make(map[string]*PackageResult)
 	results := make(map[string]*TestResult)
 
@@ -66,23 +68,37 @@ func main() {
 		if event.Test == "" {
 			switch event.Action {
 			case "start":
-				packageText.Update(pterm.Sprintf("%s", event.Package))
 				packages[event.Package] = &PackageResult{}
 			case "pass", "fail":
-				packageText.Clear()
+				testTitle.Clear()
 				pkg := packages[event.Package]
 				pkg.Elapsed = event.Elapsed
 
-				failedTests := []*TestResult{}
+				failedCount := 0
 				passedCount := 0
 				for _, testResult := range pkg.tests {
 					if testResult.State == "fail" {
-						failedTests = append(failedTests, testResult)
+						failedCount++
 					} else {
 						passedCount++
 					}
 				}
-				pterm.DefaultBasicText.Println(pterm.Sprintf("%s: Passed: %d, Failed: %d", event.Package, passedCount, len(failedTests)))
+				if passedCount == 0 && failedCount == 0 {
+					continue
+				}
+				text := pterm.Sprintf(
+					"%s %s",
+					event.Package,
+					pterm.Green(pterm.Sprintf("Passed: %d", passedCount)),
+				)
+
+				if failedCount > 0 {
+					text = pterm.Sprintf("%s %s",
+						text,
+						pterm.Red(pterm.Sprintf("Failed: %d", failedCount)),
+					)
+				}
+				pterm.DefaultBasicText.Print(pterm.Sprintln(text))
 			}
 			continue
 		}
@@ -90,8 +106,8 @@ func main() {
 		testKey := event.Package + "." + event.Test
 		switch event.Action {
 		case "run":
-			testText.Clear()
-			testText.Update(pterm.Sprintf("%s\n%s\n", event.Package, event.Test))
+			testTitle.Clear()
+			testTitle.Update(pterm.Sprintf("%s\n %s\n", event.Package, event.Test))
 			results[testKey] = &TestResult{
 				Package: event.Package,
 				Name:    event.Test,
@@ -112,34 +128,35 @@ func main() {
 		}
 	}
 
+	exitCode := 0
 	if err := cmd.Wait(); err != nil {
 		exitErr := err.(*exec.ExitError)
-		if exitErr.ExitCode() == 1 {
-			fmt.Fprintln(os.Stderr, "Some tests failed")
-		} else {
+		exitCode = exitErr.ExitCode()
+		if exitErr.ExitCode() != 1 {
 			fmt.Fprintf(os.Stderr, "Command finished with error: %v\n", err)
 		}
 	}
-	packageText.Stop()
+	err = testTitle.Stop()
+	if err != nil {
+		log.Println(err)
+	}
 
 	PrintFailedPackageTests(packages)
+
+	os.Exit(exitCode)
 }
 
 func PrintFailedPackageTests(packages map[string]*PackageResult) {
-	fmt.Println()
+	pterm.DefaultCenter.Printf(pterm.Bold.Sprintf(pterm.Red("Failures")))
 	failedTests := []*TestResult{}
 	for _, pkgResult := range packages {
-		successCount := 0
 		for _, pkgTest := range pkgResult.tests {
-			if pkgTest.State == "pass" {
-				successCount++
-			} else {
+			if pkgTest.State == "fail" {
 				failedTests = append(failedTests, pkgTest)
 			}
 		}
 
 		if len(failedTests) > 0 {
-			pterm.DefaultCenter.Printf(pterm.Bold.Sprintf(pterm.Red("Failures")))
 			for _, testResult := range failedTests {
 				pterm.DefaultSection.Println(testResult.Name)
 				for _, output := range testResult.Output {
