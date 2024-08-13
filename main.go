@@ -36,7 +36,17 @@ type PackageResult struct {
 }
 
 func main() {
-	cmd := exec.Command("go", "test", "./...", "-json")
+	var args []string
+
+	if len(os.Args) > 1 {
+		args = os.Args[1:]
+	} else {
+		args = []string{"./..."}
+	}
+	args = append([]string{"test", "-json"}, args...)
+
+	cmd := exec.Command("go", args...)
+	cmd.Env = os.Environ()
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
