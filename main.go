@@ -58,11 +58,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	testTitle, err := pterm.DefaultArea.Start()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	packages := make(map[string]*PackageResult)
 	results := make(map[string]*TestResult)
 
@@ -80,7 +75,6 @@ func main() {
 			case "start":
 				packages[event.Package] = &PackageResult{}
 			case "pass", "fail":
-				testTitle.Clear()
 				pkg := packages[event.Package]
 				pkg.Elapsed = event.Elapsed
 
@@ -116,8 +110,6 @@ func main() {
 		testKey := event.Package + "." + event.Test
 		switch event.Action {
 		case "run":
-			testTitle.Clear()
-			testTitle.Update(pterm.Sprintf("%s\n %s\n", event.Package, event.Test))
 			results[testKey] = &TestResult{
 				Package: event.Package,
 				Name:    event.Test,
@@ -146,7 +138,6 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Command finished with error: %v\n", err)
 		}
 	}
-	err = testTitle.Stop()
 	if err != nil {
 		log.Println(err)
 	}
