@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 
@@ -138,17 +137,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Command finished with error: %v\n", err)
 		}
 	}
-	if err != nil {
-		log.Println(err)
-	}
-
 	PrintFailedPackageTests(packages)
 
 	os.Exit(exitCode)
 }
 
 func PrintFailedPackageTests(packages map[string]*PackageResult) {
-	pterm.DefaultCenter.Printf(pterm.Bold.Sprintf(pterm.Red("Failures")))
 	failedTests := []*TestResult{}
 	for _, pkgResult := range packages {
 		for _, pkgTest := range pkgResult.tests {
@@ -158,6 +152,7 @@ func PrintFailedPackageTests(packages map[string]*PackageResult) {
 		}
 
 		if len(failedTests) > 0 {
+			pterm.DefaultCenter.Printf(pterm.Bold.Sprintf(pterm.Red("Failures")))
 			for _, testResult := range failedTests {
 				pterm.DefaultSection.Println(testResult.Name)
 				for _, output := range testResult.Output {
