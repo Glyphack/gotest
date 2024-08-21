@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/pterm/pterm"
 )
@@ -57,13 +58,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	testResultArea, err := pterm.DefaultArea.Start()
+
 	packages := make(map[string]*PackageResult)
 	results := make(map[string]*TestResult)
 
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		var event TestEvent
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+		read := scanner.Bytes()
+		if err := json.Unmarshal(read, &event); err != nil {
 			fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
 			continue
 		}
@@ -79,9 +83,12 @@ func main() {
 
 				failedCount := 0
 				passedCount := 0
+				skippedCount := 0
 				for _, testResult := range pkg.tests {
 					if testResult.State == "fail" {
 						failedCount++
+					} else if testResult.State == "skip" {
+						skippedCount++
 					} else {
 						passedCount++
 					}
@@ -101,7 +108,20 @@ func main() {
 						pterm.Red(pterm.Sprintf("Failed: %d", failedCount)),
 					)
 				}
-				pterm.DefaultBasicText.Print(pterm.Sprintln(text))
+				if skippedCount > 0 {
+					text = pterm.Sprintf("%s %s",
+						text,
+						pterm.Yellow(pterm.Sprintf("Skipped: %d", skippedCount)),
+					)
+				}
+				text = testResultArea.GetContent() + "\n" + text
+				testResultArea.Clear()
+				testResultArea.Update(text)
+			case "output":
+				if strings.Contains(event.Output, "build failed") {
+					fmt.Println("Build failed for package " + event.Package)
+					continue
+				}
 			}
 			continue
 		}
@@ -122,7 +142,9 @@ func main() {
 			results[testKey].State = "fail"
 		case "pass":
 			results[testKey].State = "pass"
-		case "skip", "pause", "cont":
+		case "skip":
+			results[testKey].State = "skip"
+		case "pause", "cont":
 			continue
 		default:
 			panic("Unknown action: " + event.Action)

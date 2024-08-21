@@ -1,6 +1,5 @@
 - Handle skipped tests
 - Handle parallel tets (pause, cont)
 - Handle build failures (invalid json)
-- Exit with original error code
 - Force rerun option
 - stepwise option
